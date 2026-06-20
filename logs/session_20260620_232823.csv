@@ -1,0 +1,8 @@
+Timestamp,Gesture,Confidence,Action,Slide Number
+2026-06-20 23:28:34,LIKE,88.33%,Started,1
+2026-06-20 23:28:36,FIST,72.13%,Prev Slide,1
+2026-06-20 23:28:44,FIST,71.01%,Prev Slide,1
+2026-06-20 23:28:55,PEACE,98.75%,Stopped,1
+2026-06-20 23:29:05,LIKE,80.09%,Started,1
+2026-06-20 23:29:17,FIST,80.48%,Prev Slide,1
+2026-06-20 23:29:31,PEACE,98.13%,Stopped,1

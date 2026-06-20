@@ -1,0 +1,10 @@
+tensorflow
+opencv-python
+numpy
+pandas
+matplotlib
+streamlit
+plotly
+customtkinter
+pillow
+pyautogui
