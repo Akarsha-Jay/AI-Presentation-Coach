@@ -184,9 +184,9 @@ class DashboardApp(ctk.CTk):
         # --- Pages ---
         self._setup_dashboard_page()
         self._setup_analytics_page()
-        self._setup_placeholder_page("Session History")
+        self._setup_history_page()
         self._setup_settings_page()
-        self._setup_placeholder_page("About")
+        self._setup_about_page()
         
         # Select default page
         self.select_page("Dashboard")
@@ -209,6 +209,8 @@ class DashboardApp(ctk.CTk):
         for page_name, page_frame in self.pages.items():
             if page_name == name:
                 self.after(50, lambda p=page_frame: self.winfo_exists() and p.grid(row=0, column=0, sticky="nsew"))
+                if name == "Session History" and hasattr(self, "_update_history_page"):
+                    self._update_history_page()
             else:
                 page_frame.grid_forget()
 
@@ -218,6 +220,76 @@ class DashboardApp(ctk.CTk):
         label = ctk.CTkLabel(frame, text=f"{name} Page", font=ctk.CTkFont(family="Segoe UI", size=32, weight="bold"), text_color=Theme.COLORS["text_sub"])
         label.place(relx=0.5, rely=0.5, anchor="center")
         self.pages[name] = frame
+
+    def _setup_history_page(self):
+        """Initializes the Session History page layout."""
+        self.history_page_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        self.pages["Session History"] = self.history_page_frame
+        
+        title = ctk.CTkLabel(self.history_page_frame, text="Session History", font=ctk.CTkFont(family="Segoe UI", size=28, weight="bold"), text_color=Theme.COLORS["text_main"])
+        title.pack(anchor="w", padx=40, pady=(40, 20))
+        
+        self.history_scrollable = ctk.CTkScrollableFrame(self.history_page_frame, fg_color=Theme.COLORS["bg_surface"], corner_radius=15)
+        self.history_scrollable.pack(fill="both", expand=True, padx=40, pady=(0, 40))
+        
+        # Header
+        header_frame = ctk.CTkFrame(self.history_scrollable, fg_color="transparent")
+        header_frame.pack(fill="x", padx=10, pady=5)
+        ctk.CTkLabel(header_frame, text="Time", font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), width=120, anchor="w", text_color=Theme.COLORS["text_main"]).pack(side="left")
+        ctk.CTkLabel(header_frame, text="Gesture", font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), width=150, anchor="w", text_color=Theme.COLORS["text_main"]).pack(side="left")
+        ctk.CTkLabel(header_frame, text="Confidence", font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), width=120, anchor="w", text_color=Theme.COLORS["text_main"]).pack(side="left")
+        ctk.CTkLabel(header_frame, text="Status", font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), width=150, anchor="w", text_color=Theme.COLORS["text_main"]).pack(side="left")
+
+        self.history_list_frame = ctk.CTkFrame(self.history_scrollable, fg_color="transparent")
+        self.history_list_frame.pack(fill="both", expand=True, padx=10, pady=5)
+
+    def _update_history_page(self):
+        """Populates the Session History page with recent events."""
+        if not hasattr(self, "history_list_frame") or not self.history_list_frame.winfo_exists():
+            return
+            
+        for child in self.history_list_frame.winfo_children():
+            child.destroy()
+            
+        for entry in reversed(self.session_history_log[-50:]):
+            row = ctk.CTkFrame(self.history_list_frame, fg_color="transparent")
+            row.pack(fill="x", pady=5)
+            
+            hrs, rem = divmod(int(entry[0]), 3600)
+            mins, secs = divmod(rem, 60)
+            t_str = f"{hrs:02d}:{mins:02d}:{secs:02d}"
+            
+            ctk.CTkLabel(row, text=t_str, font=ctk.CTkFont(family="Segoe UI", size=15), width=120, anchor="w", text_color=Theme.COLORS["text_sub"]).pack(side="left")
+            ctk.CTkLabel(row, text=entry[1], font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"), width=150, anchor="w", text_color=Theme.COLORS["primary"]).pack(side="left")
+            ctk.CTkLabel(row, text=f"{entry[2]:.0%}", font=ctk.CTkFont(family="Segoe UI", size=15), width=120, anchor="w", text_color=Theme.COLORS["text_sub"]).pack(side="left")
+            status_color = Theme.COLORS["primary"] if entry[3] == "Success" else Theme.COLORS["error"]
+            ctk.CTkLabel(row, text=entry[3], font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"), width=150, anchor="w", text_color=status_color).pack(side="left")
+
+    def _setup_about_page(self):
+        """Initializes the About page layout."""
+        self.about_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        self.pages["About"] = self.about_frame
+        
+        title = ctk.CTkLabel(self.about_frame, text="About AI Presentation Coach", font=ctk.CTkFont(family="Segoe UI", size=28, weight="bold"), text_color=Theme.COLORS["text_main"])
+        title.pack(anchor="w", padx=40, pady=(40, 20))
+        
+        container = ctk.CTkFrame(self.about_frame, fg_color=Theme.COLORS["bg_surface"], corner_radius=15)
+        container.pack(fill="both", expand=True, padx=40, pady=(0, 40))
+        
+        info_text = (
+            "AI Presentation Coach v1.0\n\n"
+            "This application uses computer vision and machine learning to detect hand gestures "
+            "and map them to presentation controls like Next Slide, Previous Slide, and more.\n\n"
+            "Features:\n"
+            "• Real-time gesture recognition\n"
+            "• Analytics dashboard for session tracking\n"
+            "• Customizable gesture mappings\n"
+            "• Light, Dark, and System themes\n\n"
+            "Developed with Python, OpenCV, and CustomTkinter."
+        )
+        
+        lbl = ctk.CTkLabel(container, text=info_text, font=ctk.CTkFont(family="Segoe UI", size=16), justify="left", text_color=Theme.COLORS["text_sub"], wraplength=800)
+        lbl.pack(anchor="nw", padx=30, pady=30)
 
     def _setup_settings_page(self):
         """Initializes the Settings page layout."""
@@ -288,6 +360,7 @@ class DashboardApp(ctk.CTk):
             "gesture_mappings": {g: c.get() for g, c in self.mapping_vars.items()}
         }
         self.settings.update_multiple(updates)
+        ctk.set_appearance_mode(updates["theme"])
         self._show_feedback("SETTINGS SAVED!", Theme.COLORS["primary"])
         print("[Settings] Saved successfully.")
 
@@ -896,17 +969,15 @@ class DashboardApp(ctk.CTk):
                 feedback_text = "PRESENTATION PAUSED"
                 feedback_color = Theme.COLORS["warning"]
             elif action_intent == "End Presentation":
+                self.presentation_status = "Stopped"
+                feedback_text = "PRESENTATION ENDED"
+                feedback_color = Theme.COLORS["error"]
                 if not ppt_active:
-                    action = "Failed (No PPT)"
-                    feedback_text = "NO ACTIVE PRESENTATION"
-                    feedback_color = Theme.COLORS["error"]
+                    action = "Stopped (No PPT)"
                 else:
-                    self.presentation_status = "Stopped"
                     action = "Stopped"
                     key_sent = "esc"
                     pyautogui.press('esc')
-                    feedback_text = "PRESENTATION ENDED"
-                    feedback_color = Theme.COLORS["error"]
                     
             if action != "None" and "Failed" not in action and "Ignored" not in action:
                 if not manual:
