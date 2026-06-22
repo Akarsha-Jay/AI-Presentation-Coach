@@ -1,0 +1,13 @@
+{
+    "confidence_threshold": 0.7,
+    "cooldown_duration": 1.25,
+    "webcam_index": 0,
+    "theme": "dark",
+    "gesture_mappings": {
+        "fist": "Prev Slide",
+        "like": "Next Slide",
+        "peace": "End Presentation",
+        "stop": "Pause Presentation",
+        "palm": "None"
+    }
+}

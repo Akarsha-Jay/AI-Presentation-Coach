@@ -13,7 +13,14 @@ import cv2
 import numpy as np
 import customtkinter as ctk
 import pyautogui
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageGrab
+import shutil
+from tkinter import filedialog
+
+import matplotlib
+matplotlib.use("TkAgg")
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 if sys.platform == "win32":
     import ctypes
@@ -21,99 +28,462 @@ if sys.platform == "win32":
 # Import config (we are now in src/ui, so config is in the parent directory)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import GESTURE_LABELS, CONFIDENCE_THRESHOLD
+from core.settings import SettingsManager
+from ui.theme import Theme
+
+class AnimatedStatCard(ctk.CTkFrame):
+    def __init__(self, master, icon, title, **kwargs):
+        super().__init__(master, fg_color="#1E1E1E", corner_radius=10, **kwargs)
+        
+        self.title_label = ctk.CTkLabel(self, text=f"{icon}  {title}", font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"), text_color="#A0A0A0")
+        self.title_label.pack(anchor="w", padx=15, pady=(15, 5))
+        
+        self.value_label = ctk.CTkLabel(self, text="--", font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"), text_color="white")
+        self.value_label.pack(anchor="w", padx=15, pady=(0, 15))
+        
+        self.bind("<Enter>", self._on_enter)
+        self.bind("<Leave>", self._on_leave)
+        
+        # Bind to children so hover works over text too
+        for child in self.winfo_children():
+            child.bind("<Enter>", self._on_enter)
+            child.bind("<Leave>", self._on_leave)
+            
+        self.current_value = "--"
+
+    def _on_enter(self, event):
+        self.configure(fg_color="#2A2A2A")
+
+    def _on_leave(self, event):
+        self.configure(fg_color="#1E1E1E")
+
+    def update_value(self, new_value, color="white"):
+        if str(new_value) != str(self.current_value):
+            self.current_value = new_value
+            self.value_label.configure(text=new_value, text_color="#00C896")
+            self.after(300, lambda: self.value_label.configure(text_color=color))
+        else:
+            self.value_label.configure(text_color=color)
+
+class CircularGauge(ctk.CTkFrame):
+    def __init__(self, master, title, size=120, **kwargs):
+        super().__init__(master, fg_color="#1E1E1E", corner_radius=10, **kwargs)
+        self.size = size
+        
+        self.title_label = ctk.CTkLabel(self, text=f"🎯  {title}", font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"), text_color="#A0A0A0")
+        self.title_label.pack(anchor="w", padx=15, pady=(15, 0))
+        
+        self.canvas = ctk.CTkCanvas(self, width=size, height=size, bg="#1E1E1E", highlightthickness=0)
+        self.canvas.pack(pady=10)
+        
+        # Center percentage text
+        self.value_text = self.canvas.create_text(size/2, size/2, text="0%", fill="white", font=("Segoe UI", 24, "bold"))
+        
+        self.current_value = 0.0
+        self._draw_arc(0.0, "#333333") # Base track
+        
+    def _draw_arc(self, percentage, color):
+        self.canvas.delete("foreground")
+        
+        # Draw background track
+        padding = 15
+        bbox = (padding, padding, self.size - padding, self.size - padding)
+        self.canvas.create_arc(bbox, start=0, extent=359.9, style="arc", outline="#333333", width=8, tags="background")
+        
+        # Draw foreground progress
+        extent = -(percentage * 359.9) # Negative to draw clockwise
+        if percentage > 0:
+            self.canvas.create_arc(bbox, start=90, extent=extent, style="arc", outline=color, width=8, tags="foreground")
+            
+    def update_value(self, confidence_float):
+        self.current_value = confidence_float
+        
+        if confidence_float >= 0.85:
+            color = "#00C896" # Green
+        elif confidence_float >= 0.70:
+            color = "#FFB020" # Orange
+        else:
+            color = "#FF5252" # Red
+            
+        self.canvas.itemconfig(self.value_text, text=f"{confidence_float:.0%}")
+        self._draw_arc(confidence_float, color)
 
 class DashboardApp(ctk.CTk):
     """Main Dashboard Window using CustomTkinter."""
     
-    def __init__(self, recognizer):
+    def __init__(self):
         super().__init__()
         
-        self.recognizer = recognizer
+        self.recognizer = None
         self.title("AI Presentation Coach Dashboard")
         self.geometry("1600x750")
         
-        # Grid layout
-        self.grid_columnconfigure(0, weight=3) # Webcam
-        self.grid_columnconfigure(1, weight=1) # Statistics Panel
-        self.grid_columnconfigure(2, weight=1) # History
-        self.grid_rowconfigure(0, weight=1)
+        from ui.theme import Theme
+        self.configure(fg_color=Theme.COLORS["bg_base"])
         
-        self._setup_ui()
+        # Grid layout
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=0) # Sidebar
+        self.grid_columnconfigure(1, weight=1) # Main Content
+        
+        self.pages = {}
+        self.nav_buttons = {}
+        
+        # Init state MUST come before setup_ui to prevent AttributeError
         self._init_state()
+        self._setup_ui()
         self._setup_logging()
         
-        # Start GUI update loop (runs on main thread)
+        self.withdraw() # Hide main window immediately
+        
+        # Show splash screen (passing self as master)
+        from ui.splash import SplashScreen
+        self.splash = SplashScreen(self)
+        
+    def start_dashboard(self, recognizer):
+        """Called by SplashScreen when heavy resources are loaded."""
+        self.recognizer = recognizer
+        self.deiconify() # Show main window
         self.update_frame()
         
     def _setup_ui(self):
         """Initializes all GUI frames and labels."""
-        # 1. Webcam Frame
-        self.video_frame = ctk.CTkFrame(self)
-        self.video_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
-        self.video_label = ctk.CTkLabel(self.video_frame, text="")
-        self.video_label.pack(expand=True, fill="both", padx=10, pady=10)
+        # --- Sidebar ---
+        self.sidebar_frame = ctk.CTkFrame(self, fg_color=Theme.COLORS["bg_surface"], corner_radius=0, width=250)
+        self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
+        self.sidebar_frame.grid_propagate(False)
         
-        self.feedback_label = ctk.CTkLabel(self.video_frame, text="", font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"), text_color="yellow")
-        self.feedback_label.pack(pady=(0, 10))
+        self.logo_label = ctk.CTkLabel(self.sidebar_frame, text="AI Coach", font=Theme.font_h1(), text_color=Theme.COLORS["primary"])
+        self.logo_label.pack(pady=(30, 30), padx=20, anchor="w")
         
-        # 2. Statistics Panel
-        self.stats_frame = ctk.CTkFrame(self)
-        self.stats_frame.grid(row=0, column=1, padx=20, pady=20, sticky="nsew")
-        self.stats_label_title = ctk.CTkLabel(self.stats_frame, text="Real-Time Statistics", font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"))
-        self.stats_label_title.pack(pady=(20, 30))
-        
-        self.labels = {}
-        stat_fields = [
-            ("🖐️", "Current Gesture"),
-            ("🎯", "Confidence"),
-            ("🎬", "Presentation Status"),
-            ("⏱️", "Presentation Timer"),
-            ("✅", "Total Commands Executed"),
-            ("📈", "Average Confidence"),
-            ("⚡", "Current FPS"),
-            ("⏱️", "Model Inference Time")
+        nav_items = [
+            ("\uE80F", "Dashboard"),
+            ("\uE9D9", "Gesture Analytics"),
+            ("\uE81C", "Session History"),
+            ("\uE713", "Settings"),
+            ("\uE946", "About")
         ]
         
-        for icon, field in stat_fields:
-            frame = ctk.CTkFrame(self.stats_frame, fg_color="transparent")
-            frame.pack(fill="x", padx=20, pady=8)
-            title = ctk.CTkLabel(frame, text=f"{icon}  {field}:", font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"))
-            title.pack(anchor="w")
-            value = ctk.CTkLabel(frame, text="--", font=ctk.CTkFont(family="Segoe UI", size=18))
-            value.pack(anchor="w")
-            self.labels[field] = value
+        for icon, name in nav_items:
+            container = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
+            container.pack(fill="x", padx=10, pady=5)
             
+            indicator = ctk.CTkFrame(container, fg_color="transparent", width=4, corner_radius=2)
+            indicator.pack(side="left", fill="y", pady=5)
+            
+            btn = ctk.CTkButton(container, text=f"{icon}   {name}", anchor="w", fg_color="transparent", text_color=Theme.COLORS["text_sub"], hover_color=Theme.COLORS["bg_surface_hover"], font=Theme.font_h3(), command=lambda n=name: self.select_page(n))
+            btn.pack(side="left", fill="x", expand=True, padx=(5,0))
+            self.nav_buttons[name] = {"btn": btn, "indicator": indicator}
+            
+        # --- Main Container ---
+        self.main_container = ctk.CTkFrame(self, fg_color=Theme.COLORS["bg_base"], corner_radius=0)
+        self.main_container.grid(row=0, column=1, sticky="nsew")
+        self.main_container.grid_rowconfigure(0, weight=1)
+        self.main_container.grid_columnconfigure(0, weight=1)
+        
+        # --- Pages ---
+        self._setup_dashboard_page()
+        self._setup_analytics_page()
+        self._setup_placeholder_page("Session History")
+        self._setup_settings_page()
+        self._setup_placeholder_page("About")
+        
+        # Select default page
+        self.select_page("Dashboard")
+
+    def select_page(self, name):
+        """Handles switching between pages and highlighting the active sidebar button."""
+        # Update button colors & active indicators
+        for btn_name, elements in self.nav_buttons.items():
+            btn = elements["btn"]
+            ind = elements["indicator"]
+            
+            if btn_name == name:
+                btn.configure(fg_color=Theme.COLORS["bg_surface_hover"], text_color=Theme.COLORS["primary"])
+                ind.configure(fg_color=Theme.COLORS["primary"])
+            else:
+                btn.configure(fg_color="transparent", text_color=Theme.COLORS["text_sub"])
+                ind.configure(fg_color="transparent")
+                
+        # Fade transition logic (pseudo-fade by delaying drawing)
+        for page_name, page_frame in self.pages.items():
+            if page_name == name:
+                self.after(50, lambda p=page_frame: p.grid(row=0, column=0, sticky="nsew"))
+            else:
+                page_frame.grid_forget()
+
+    def _setup_placeholder_page(self, name):
+        """Creates a placeholder frame for unfinished pages."""
+        frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        label = ctk.CTkLabel(frame, text=f"{name} Page", font=ctk.CTkFont(family="Segoe UI", size=32, weight="bold"), text_color="#555555")
+        label.place(relx=0.5, rely=0.5, anchor="center")
+        self.pages[name] = frame
+
+    def _setup_settings_page(self):
+        """Initializes the Settings page layout."""
+        self.settings_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        self.pages["Settings"] = self.settings_frame
+        
+        title = ctk.CTkLabel(self.settings_frame, text="Application Settings", font=ctk.CTkFont(family="Segoe UI", size=28, weight="bold"), text_color="white")
+        title.pack(anchor="w", padx=40, pady=(40, 20))
+        
+        container = ctk.CTkScrollableFrame(self.settings_frame, fg_color="#1E1E1E", corner_radius=15)
+        container.pack(fill="both", expand=True, padx=40, pady=(0, 40))
+        
+        def create_setting_row(parent, label_text):
+            row = ctk.CTkFrame(parent, fg_color="transparent")
+            row.pack(fill="x", padx=30, pady=15)
+            lbl = ctk.CTkLabel(row, text=label_text, font=ctk.CTkFont(family="Segoe UI", size=16), text_color="#A0A0A0")
+            lbl.pack(side="left")
+            return row
+            
+        ctk.CTkLabel(container, text="Core Options", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"), text_color="#00C896").pack(anchor="w", padx=20, pady=(20, 10))
+        
+        row_conf = create_setting_row(container, "Confidence Threshold")
+        self.val_conf = ctk.CTkLabel(row_conf, text=f"{self.settings.get('confidence_threshold'):.2f}", width=40)
+        self.val_conf.pack(side="right", padx=(10, 0))
+        self.slider_conf = ctk.CTkSlider(row_conf, from_=0.50, to=0.99, command=lambda v: self.val_conf.configure(text=f"{v:.2f}"))
+        self.slider_conf.set(self.settings.get("confidence_threshold"))
+        self.slider_conf.pack(side="right")
+        
+        row_cool = create_setting_row(container, "Cooldown Duration (sec)")
+        self.val_cool = ctk.CTkLabel(row_cool, text=f"{self.settings.get('cooldown_duration'):.1f}s", width=40)
+        self.val_cool.pack(side="right", padx=(10, 0))
+        self.slider_cool = ctk.CTkSlider(row_cool, from_=0.5, to=5.0, number_of_steps=45, command=lambda v: self.val_cool.configure(text=f"{v:.1f}s"))
+        self.slider_cool.set(self.settings.get("cooldown_duration"))
+        self.slider_cool.pack(side="right")
+        
+        row_cam = create_setting_row(container, "Webcam Index (Requires Restart)")
+        self.combo_cam = ctk.CTkComboBox(row_cam, values=["0", "1", "2", "3"])
+        self.combo_cam.set(str(self.settings.get("webcam_index")))
+        self.combo_cam.pack(side="right")
+        
+        row_theme = create_setting_row(container, "Theme (Requires Restart)")
+        self.combo_theme = ctk.CTkComboBox(row_theme, values=["dark", "light", "system"])
+        self.combo_theme.set(self.settings.get("theme"))
+        self.combo_theme.pack(side="right")
+        
+        ctk.CTkLabel(container, text="Gesture Mappings", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"), text_color="#00C896").pack(anchor="w", padx=20, pady=(30, 10))
+        
+        actions = ["Next Slide", "Prev Slide", "Start Presentation", "Pause Presentation", "End Presentation", "None"]
+        self.mapping_vars = {}
+        
+        mappings = self.settings.get("gesture_mappings")
+        for gesture in ["fist", "like", "peace", "stop", "palm"]:
+            row = create_setting_row(container, f"Gesture: {gesture.upper()}")
+            combo = ctk.CTkComboBox(row, values=actions, width=200)
+            combo.set(mappings.get(gesture, "None"))
+            combo.pack(side="right")
+            self.mapping_vars[gesture] = combo
+            
+        btn_save = ctk.CTkButton(container, text="Save Settings", font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), fg_color="#00C896", hover_color="#00A078", height=40, command=self._save_settings_from_ui)
+        btn_save.pack(pady=40)
+
+    def _save_settings_from_ui(self):
+        updates = {
+            "confidence_threshold": self.slider_conf.get(),
+            "cooldown_duration": self.slider_cool.get(),
+            "webcam_index": int(self.combo_cam.get()),
+            "theme": self.combo_theme.get(),
+            "gesture_mappings": {g: c.get() for g, c in self.mapping_vars.items()}
+        }
+        self.settings.update_multiple(updates)
+        self._show_feedback("SETTINGS SAVED!", "#00C896")
+        print("[Settings] Saved successfully.")
+
+    def _setup_analytics_page(self):
+        """Initializes the Analytics page layout with Matplotlib charts."""
+        self.analytics_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        self.pages["Gesture Analytics"] = self.analytics_frame
+        
+        self.analytics_frame.grid_rowconfigure(0, weight=1) # Top cards
+        self.analytics_frame.grid_rowconfigure(1, weight=3) # Bottom charts
+        self.analytics_frame.grid_columnconfigure(0, weight=1)
+        
+        # Top Metrics Grid
+        self.analytics_cards_container = ctk.CTkFrame(self.analytics_frame, fg_color="transparent")
+        self.analytics_cards_container.grid(row=0, column=0, sticky="nsew", padx=20, pady=(20, 10))
+        self.analytics_cards_container.grid_columnconfigure((0, 1, 2), weight=1)
+        
+        self.analytics_cards = {}
+        metrics = [
+            ("🖐️", "Total Gestures Detected", 0, 0),
+            ("✅", "Successful Commands", 0, 1),
+            ("❌", "Rejected Gestures", 0, 2),
+            ("📈", "Average Confidence", 1, 0),
+            ("🏆", "Most Used Gesture", 1, 1),
+            ("⏱️", "Session Duration", 1, 2)
+        ]
+        for icon, field, r, c in metrics:
+            card = AnimatedStatCard(self.analytics_cards_container, icon, field)
+            card.grid(row=r, column=c, padx=10, pady=10, sticky="nsew")
+            self.analytics_cards[field] = card
+            
+        # Bottom Charts Grid
+        self.charts_container = ctk.CTkFrame(self.analytics_frame, fg_color="transparent")
+        self.charts_container.grid(row=1, column=0, sticky="nsew", padx=20, pady=(10, 20))
+        self.charts_container.grid_columnconfigure((0, 1, 2), weight=1)
+        self.charts_container.grid_rowconfigure(0, weight=1)
+        
+        plt.style.use("dark_background")
+        
+        # Chart 1: Gesture Frequency
+        self.fig1, self.ax1 = plt.subplots(figsize=(4, 3), dpi=100)
+        self.fig1.patch.set_facecolor('#121212')
+        self.ax1.set_facecolor('#1E1E1E')
+        self.ax1.set_title("Gesture Frequency", color="white")
+        self.canvas1 = FigureCanvasTkAgg(self.fig1, master=self.charts_container)
+        self.canvas1.get_tk_widget().grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        
+        # Chart 2: Confidence Trend
+        self.fig2, self.ax2 = plt.subplots(figsize=(4, 3), dpi=100)
+        self.fig2.patch.set_facecolor('#121212')
+        self.ax2.set_facecolor('#1E1E1E')
+        self.ax2.set_title("Confidence Trend", color="white")
+        self.canvas2 = FigureCanvasTkAgg(self.fig2, master=self.charts_container)
+        self.canvas2.get_tk_widget().grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
+        
+        # Chart 3: Commands Over Time
+        self.fig3, self.ax3 = plt.subplots(figsize=(4, 3), dpi=100)
+        self.fig3.patch.set_facecolor('#121212')
+        self.ax3.set_facecolor('#1E1E1E')
+        self.ax3.set_title("Commands Over Time", color="white")
+        self.canvas3 = FigureCanvasTkAgg(self.fig3, master=self.charts_container)
+        self.canvas3.get_tk_widget().grid(row=0, column=2, padx=10, pady=10, sticky="nsew")
+        
+        # Start chart update loop
+        self._update_analytics_charts()
+
+    def _update_analytics_charts(self):
+        """Periodic loop to update analytics data and charts."""
+        # Update Cards
+        self.analytics_cards["Total Gestures Detected"].update_value(str(self.total_gestures_detected))
+        self.analytics_cards["Successful Commands"].update_value(str(self.successful_commands))
+        self.analytics_cards["Rejected Gestures"].update_value(str(self.rejected_commands))
+        
+        avg_conf = 0.0
+        if len(self.session_history_log) > 0:
+            avg_conf = sum([entry[2] for entry in self.session_history_log]) / len(self.session_history_log)
+        self.analytics_cards["Average Confidence"].update_value(f"{avg_conf:.0%}")
+        
+        most_used = "--"
+        if self.gesture_counts_total:
+            most_used = max(self.gesture_counts_total, key=self.gesture_counts_total.get)
+        self.analytics_cards["Most Used Gesture"].update_value(most_used)
+        
+        hrs, rem = divmod(int(self.session_duration), 3600)
+        mins, secs = divmod(rem, 60)
+        self.analytics_cards["Session Duration"].update_value(f"{hrs:02d}:{mins:02d}:{secs:02d}")
+        
+        # Update Chart 1: Bar Chart
+        self.ax1.clear()
+        self.ax1.set_title("Gesture Frequency", color="white")
+        if self.gesture_counts_total:
+            labels = list(self.gesture_counts_total.keys())
+            values = list(self.gesture_counts_total.values())
+            self.ax1.bar(labels, values, color="#00C896")
+        self.fig1.tight_layout()
+        self.canvas1.draw()
+        
+        # Update Chart 2: Confidence Line
+        self.ax2.clear()
+        self.ax2.set_title("Confidence Trend", color="white")
+        if len(self.session_history_log) > 0:
+            times = [entry[0] for entry in self.session_history_log]
+            confs = [entry[2] for entry in self.session_history_log]
+            self.ax2.plot(times, confs, color="#FFB020", marker='.')
+        self.fig2.tight_layout()
+        self.canvas2.draw()
+        
+        # Update Chart 3: Commands Over Time
+        self.ax3.clear()
+        self.ax3.set_title("Commands Over Time", color="white")
+        if len(self.session_history_log) > 0:
+            times = [entry[0] for entry in self.session_history_log if entry[3] != "Rejected"]
+            counts = range(1, len(times) + 1)
+            if times:
+                self.ax3.plot(times, counts, color="#FF5252")
+        self.fig3.tight_layout()
+        self.canvas3.draw()
+        
+        self.after(2000, self._update_analytics_charts)
+
+    def _setup_dashboard_page(self):
+        """Initializes the Dashboard page layout."""
+        self.dashboard_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        self.pages["Dashboard"] = self.dashboard_frame
+        
+        self.dashboard_frame.grid_columnconfigure(0, weight=3) # Webcam
+        self.dashboard_frame.grid_columnconfigure(1, weight=1) # Statistics Panel
+        self.dashboard_frame.grid_columnconfigure(2, weight=1) # History
+        self.dashboard_frame.grid_rowconfigure(0, weight=1)
+        
+        # 1. Webcam Frame
+        self.video_frame = ctk.CTkFrame(self.dashboard_frame, fg_color="#1E1E1E", corner_radius=15)
+        self.video_frame.grid(row=0, column=0, padx=(30, 15), pady=30, sticky="nsew")
+        self.video_label = ctk.CTkLabel(self.video_frame, text="")
+        self.video_label.pack(expand=True, fill="both", padx=15, pady=15)
+        
+        self.feedback_label = ctk.CTkLabel(self.video_frame, text="", font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"), text_color="#00C896")
+        self.feedback_label.pack(pady=(0, 15))
+        
+        # 2. Statistics Panel
+        self.stats_frame = ctk.CTkFrame(self.dashboard_frame, fg_color="transparent")
+        self.stats_frame.grid(row=0, column=1, padx=15, pady=30, sticky="nsew")
+        self.stats_label_title = ctk.CTkLabel(self.stats_frame, text="Real-Time Statistics", font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"), text_color="white")
+        self.stats_label_title.pack(pady=(0, 20))
+        
+        self.cards_container = ctk.CTkFrame(self.stats_frame, fg_color="transparent")
+        self.cards_container.pack(fill="both", expand=True)
+        self.cards_container.grid_columnconfigure(0, weight=1)
+        self.cards_container.grid_columnconfigure(1, weight=1)
+        
+        self.cards = {}
+        stat_fields = [
+            ("🖐️", "Current Gesture", 0, 0),
+            ("🎯", "Confidence", 0, 1),
+            ("🎬", "Presentation Status", 1, 0),
+            ("🖼️", "Current Slide", 1, 1),
+            ("✅", "Commands Executed", 2, 0),
+            ("⏱️", "Session Time", 2, 1)
+        ]
+        
+        for icon, field, r, c in stat_fields:
             if field == "Confidence":
-                self.confidence_progress = ctk.CTkProgressBar(frame)
-                self.confidence_progress.pack(fill="x", pady=(5, 0))
-                self.confidence_progress.set(0)
+                card = CircularGauge(self.cards_container, field)
+            else:
+                card = AnimatedStatCard(self.cards_container, icon, field)
+            card.grid(row=r, column=c, padx=8, pady=8, sticky="nsew")
+            self.cards[field] = card
                 
         # 3. History Panel
-        self.history_frame = ctk.CTkFrame(self)
-        self.history_frame.grid(row=0, column=2, padx=20, pady=20, sticky="nsew")
-        self.history_label_title = ctk.CTkLabel(self.history_frame, text="Recent History", font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"))
-        self.history_label_title.pack(pady=(20, 30))
+        self.history_frame = ctk.CTkFrame(self.dashboard_frame, fg_color="#1E1E1E", corner_radius=15)
+        self.history_frame.grid(row=0, column=2, padx=(15, 30), pady=30, sticky="nsew")
+        self.history_label_title = ctk.CTkLabel(self.history_frame, text="Recent History", font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"), text_color="white")
+        self.history_label_title.pack(pady=(20, 20))
         
         self.history_entries = []
         for i in range(5):
-            entry = ctk.CTkLabel(self.history_frame, text="-", font=ctk.CTkFont(family="Segoe UI", size=14))
-            entry.pack(anchor="w", padx=20, pady=10)
+            entry = ctk.CTkLabel(self.history_frame, text="-", font=ctk.CTkFont(family="Segoe UI", size=15), text_color="#B0B0B0")
+            entry.pack(anchor="w", padx=25, pady=12)
             self.history_entries.append(entry)
             
         # 4. Test Controls Panel
-        self.test_frame = ctk.CTkFrame(self)
-        self.test_frame.grid(row=1, column=0, columnspan=3, padx=20, pady=10, sticky="ew")
-        self.test_label = ctk.CTkLabel(self.test_frame, text="Test Controls:", font=ctk.CTkFont(family="Segoe UI", weight="bold"))
-        self.test_label.pack(side="left", padx=20, pady=10)
+        self.test_frame = ctk.CTkFrame(self.dashboard_frame, fg_color="#1E1E1E", corner_radius=15)
+        self.test_frame.grid(row=1, column=0, columnspan=3, padx=30, pady=(0, 30), sticky="ew")
+        self.test_label = ctk.CTkLabel(self.test_frame, text="Test Controls:", font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), text_color="white")
+        self.test_label.pack(side="left", padx=25, pady=15)
         
-        btn_prev = ctk.CTkButton(self.test_frame, text="Prev Slide (FIST)", command=lambda: self._execute_action("fist", manual=True))
-        btn_prev.pack(side="left", padx=10, pady=10)
+        btn_prev = ctk.CTkButton(self.test_frame, text="Prev Slide (FIST)", font=ctk.CTkFont(family="Segoe UI", weight="bold"), fg_color="#00C896", hover_color="#00A078", text_color="white", corner_radius=8, command=lambda: self._execute_action("fist", manual=True))
+        btn_prev.pack(side="left", padx=10, pady=15)
         
-        btn_next = ctk.CTkButton(self.test_frame, text="Next Slide (LIKE)", command=lambda: self._execute_action("like", manual=True))
-        btn_next.pack(side="left", padx=10, pady=10)
+        btn_next = ctk.CTkButton(self.test_frame, text="Next Slide (LIKE)", font=ctk.CTkFont(family="Segoe UI", weight="bold"), fg_color="#00C896", hover_color="#00A078", text_color="white", corner_radius=8, command=lambda: self._execute_action("like", manual=True))
+        btn_next.pack(side="left", padx=10, pady=15)
 
     def _init_state(self):
         """Initializes application state tracking variables."""
+        self.settings = SettingsManager()
+        
         self.presentation_status = "Waiting"
         self.current_slide = 1
         self.total_slides = 10
@@ -132,12 +502,18 @@ class DashboardApp(ctk.CTk):
         
         self.gesture_history_data = []
         
+        # Analytics Tracking
+        self.session_history_log = [] # List of tuples: (time_offset, gesture, confidence, action_status)
+        self.gesture_counts_total = {}
+        
         # Performance tracking counters
         self.successful_commands = 0
         self.rejected_commands = 0
         self.frame_times = []
         self.fps_frame_times = []
         self._feedback_timer = None
+        
+        self.summary_shown = False
         
     def _get_active_window_title(self):
         if sys.platform == "win32":
@@ -163,9 +539,10 @@ class DashboardApp(ctk.CTk):
                 user32.SetForegroundWindow(hwnd)
 
     def _focus_powerpoint(self):
-        """Attempts to find and focus a PowerPoint Slide Show window.
-        Returns True if Slide Show is found and active.
-        If Slide Show is not found but main PowerPoint window is, focuses that and returns False.
+        """Attempts to find and focus a PowerPoint window.
+        Returns "SLIDESHOW" if active presentation is found.
+        Returns "EDIT" if normal PowerPoint window is found.
+        Returns "NONE" if no PowerPoint is found.
         """
         if sys.platform == "win32":
             # 1. Try finding Slide Show
@@ -173,18 +550,18 @@ class DashboardApp(ctk.CTk):
             if hwnd and ctypes.windll.user32.IsWindowVisible(hwnd):
                 ctypes.windll.user32.ShowWindow(hwnd, 9)
                 self._force_foreground(hwnd)
-                return True
+                return "SLIDESHOW"
             
             # 2. Try finding PowerPoint Edit Window
             hwnd_edit = ctypes.windll.user32.FindWindowW("PPTFrameClass", None)
             if hwnd_edit and ctypes.windll.user32.IsWindowVisible(hwnd_edit):
                 ctypes.windll.user32.ShowWindow(hwnd_edit, 9)
                 self._force_foreground(hwnd_edit)
-                return False
+                return "EDIT"
                 
-        return False
+        return "NONE"
         
-    def _show_feedback(self, text, color="yellow"):
+    def _show_feedback(self, text, color="#FFB020"):
         """Displays feedback on the dashboard and clears it after 3 seconds."""
         self.feedback_label.configure(text=text, text_color=color)
         if self._feedback_timer:
@@ -205,6 +582,89 @@ class DashboardApp(ctk.CTk):
         self.csv_writer.writerow(["Timestamp", "Gesture", "Confidence", "Action", "Slide Number"])
         self.csv_file.flush()
         print(f"Session log: {log_path}")
+
+    def _export_csv(self):
+        """Copies the session CSV log to a user-selected path."""
+        target_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv")])
+        if target_path and hasattr(self, "csv_file") and not self.csv_file.closed:
+            self.csv_file.flush()
+            shutil.copy(self.csv_file.name, target_path)
+            print(f"[Export] Saved CSV to {target_path}")
+
+    def _export_image_or_pdf(self, ext=".png"):
+        """Takes a screenshot of the summary overlay and saves it."""
+        target_path = filedialog.asksaveasfilename(defaultextension=ext, filetypes=[(f"{ext.upper()[1:]} files", f"*{ext}")])
+        if target_path and hasattr(self, "summary_frame"):
+            self.update_idletasks()
+            x = self.summary_frame.winfo_rootx()
+            y = self.summary_frame.winfo_rooty()
+            w = self.summary_frame.winfo_width()
+            h = self.summary_frame.winfo_height()
+            
+            img = ImageGrab.grab(bbox=(x, y, x + w, y + h))
+            if ext == ".pdf":
+                img.save(target_path, "PDF", resolution=100.0)
+            else:
+                img.save(target_path)
+            print(f"[Export] Saved {ext} to {target_path}")
+
+    def _build_summary_overlay(self):
+        """Builds and displays a full-screen overlay for the session summary."""
+        self.summary_shown = True
+        
+        self.summary_overlay = ctk.CTkFrame(self.main_container, fg_color="#0A0A0A", corner_radius=0)
+        self.summary_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+        
+        self.summary_frame = ctk.CTkFrame(self.summary_overlay, fg_color="#1E1E1E", corner_radius=15, width=600, height=500)
+        self.summary_frame.place(relx=0.5, rely=0.5, anchor="center")
+        self.summary_frame.grid_propagate(False)
+        
+        title = ctk.CTkLabel(self.summary_frame, text="Session Complete", font=ctk.CTkFont(family="Segoe UI", size=32, weight="bold"), text_color="#00C896")
+        title.pack(pady=(30, 20))
+        
+        hrs, rem = divmod(int(self.session_duration), 3600)
+        mins, secs = divmod(rem, 60)
+        duration_str = f"{hrs:02d}:{mins:02d}:{secs:02d}"
+        
+        avg_conf = sum([e[2] for e in self.session_history_log]) / len(self.session_history_log) if self.session_history_log else 0.0
+        max_conf = max([e[2] for e in self.session_history_log]) if self.session_history_log else 0.0
+        min_conf = min([e[2] for e in self.session_history_log]) if self.session_history_log else 0.0
+        most_used = max(self.gesture_counts_total, key=self.gesture_counts_total.get) if self.gesture_counts_total else "--"
+        
+        metrics = [
+            (f"Duration:", duration_str),
+            (f"Commands Executed:", str(self.successful_commands)),
+            (f"Average Confidence:", f"{avg_conf:.0%}"),
+            (f"Highest Confidence:", f"{max_conf:.0%}"),
+            (f"Lowest Confidence:", f"{min_conf:.0%}"),
+            (f"Most Used Gesture:", most_used)
+        ]
+        
+        metrics_frame = ctk.CTkFrame(self.summary_frame, fg_color="transparent")
+        metrics_frame.pack(fill="x", padx=50, pady=20)
+        
+        for i, (label_text, val_text) in enumerate(metrics):
+            lbl = ctk.CTkLabel(metrics_frame, text=label_text, font=ctk.CTkFont(family="Segoe UI", size=18), text_color="#A0A0A0")
+            lbl.grid(row=i//2, column=(i%2)*2, sticky="w", pady=10)
+            val = ctk.CTkLabel(metrics_frame, text=val_text, font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"), text_color="white")
+            val.grid(row=i//2, column=(i%2)*2+1, sticky="e", padx=(10, 30), pady=10)
+            metrics_frame.grid_columnconfigure((i%2)*2, weight=1)
+            metrics_frame.grid_columnconfigure((i%2)*2+1, weight=1)
+            
+        btn_frame = ctk.CTkFrame(self.summary_frame, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=50, pady=(20, 30))
+        
+        btn_csv = ctk.CTkButton(btn_frame, text="Export CSV", fg_color="#2B2B2B", hover_color="#3B3B3B", command=self._export_csv)
+        btn_csv.pack(side="left", padx=10, expand=True)
+        
+        btn_png = ctk.CTkButton(btn_frame, text="Save Screenshot", fg_color="#2B2B2B", hover_color="#3B3B3B", command=lambda: self._export_image_or_pdf(".png"))
+        btn_png.pack(side="left", padx=10, expand=True)
+        
+        btn_pdf = ctk.CTkButton(btn_frame, text="Export PDF", fg_color="#2B2B2B", hover_color="#3B3B3B", command=lambda: self._export_image_or_pdf(".pdf"))
+        btn_pdf.pack(side="left", padx=10, expand=True)
+        
+        btn_close = ctk.CTkButton(self.summary_frame, text="Close Report", fg_color="#FF5252", hover_color="#D32F2F", command=self.summary_overlay.destroy)
+        btn_close.pack(pady=10)
 
     def update_frame(self):
         """
@@ -247,12 +707,13 @@ class DashboardApp(ctk.CTk):
             else:
                 label = f"Class {top_idx}"
                 
-            self.labels["Current FPS"].configure(text=str(fps))
-            self.labels["Model Inference Time"].configure(text=f"{avg_proc:.1f} ms")
-            self.labels["Total Commands Executed"].configure(text=str(self.successful_commands))
+            # Note: FPS and Inference Time are now only shown in HUD
+            self.cards["Commands Executed"].update_value(str(self.successful_commands))
+            self.cards["Current Slide"].update_value(f"{self.current_slide} / {self.total_slides}")
             
             # --- State and stabilization logic ---
-            current_label_upper = label.upper() if confidence >= CONFIDENCE_THRESHOLD else "NONE"
+            threshold = self.settings.get("confidence_threshold", 0.70)
+            current_label_upper = label.upper() if confidence >= threshold else "NONE"
             self.recent_predictions.append(current_label_upper)
             
             # Keep a sliding window of 7 frames (~230ms at 30fps) for fast majority voting
@@ -282,39 +743,66 @@ class DashboardApp(ctk.CTk):
                         if len(self.confidences) > 100:
                             self.confidences.pop(0)
                         avg_conf = sum(self.confidences) / len(self.confidences)
-                        self.labels["Average Confidence"].configure(text=f"{avg_conf:.0%}")
+                        # Average confidence metric removed from main UI
+                        
                         
                         self._execute_action(self.locked_gesture.lower(), confidence=confidence, manual=False)
                     
             if self.locked_gesture != "NONE" and self.locked_gesture != "--":
-                self.labels["Current Gesture"].configure(text=self.locked_gesture)
+                self.cards["Current Gesture"].update_value(self.locked_gesture)
                 display_text = f"{label.upper()}: {confidence:.0%} (Live)"
             else:
-                self.labels["Current Gesture"].configure(text="UNKNOWN GESTURE")
+                self.cards["Current Gesture"].update_value("UNKNOWN")
                 display_text = f"UNKNOWN: {confidence:.0%} (Live)"
                 
             # --- Global Label Colors ---
             status_color = "white"
             if self.presentation_status == "Running":
-                status_color = "#2ECC71" # Green
+                status_color = "#00C896" # Accent
             elif self.presentation_status == "Paused":
-                status_color = "#F39C12" # Orange
+                status_color = "#FFB020" # Warning
             elif self.presentation_status == "Stopped":
-                status_color = "#E74C3C" # Red
+                status_color = "#FF5252" # Error
+                if not getattr(self, "summary_shown", False):
+                    self._build_summary_overlay()
                 
-            self.labels["Confidence"].configure(text=f"{confidence:.0%}")
-            self.confidence_progress.set(confidence)
-            self.labels["Presentation Status"].configure(text=self.presentation_status, text_color=status_color)
-            self.labels["Presentation Timer"].configure(text=duration_str)
+            self.cards["Confidence"].update_value(confidence)
+            self.cards["Presentation Status"].update_value(self.presentation_status, color=status_color)
+            self.cards["Session Time"].update_value(duration_str)
             
             # --- Draw UI on Video Frame ---
+            # Determine HUD color
+            threshold = self.settings.get("confidence_threshold", 0.70)
+            if label.upper() == "NONE":
+                hud_color = (82, 82, 255) # Red (BGR)
+            elif confidence < threshold:
+                hud_color = (32, 176, 255) # Yellow (BGR)
+            else:
+                hud_color = (150, 200, 0) # Green (BGR)
+
+            # Draw thick glowing border
+            cv2.rectangle(frame, (0, 0), (frame.shape[1]-1, frame.shape[0]-1), hud_color, 8)
+
+            # Draw semi-transparent HUD container at the top
+            overlay = frame.copy()
+            hud_height = 60
+            cv2.rectangle(overlay, (0, 0), (frame.shape[1], hud_height), (20, 20, 20), -1)
+            # Alpha blend the container
+            alpha = 0.7
+            frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
+
+            # Draw status indicator circle
+            cv2.circle(frame, (35, 30), 8, hud_color, -1)
+            
+            # Draw HUD Text
+            hud_text = f"GESTURE: {label.upper()}  |  CONF: {confidence:.0%}  |  FPS: {fps}"
             cv2.putText(
                 img=frame,
-                text=display_text,
-                org=(20, 50),
+                text=hud_text,
+                org=(60, 38),
                 fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                fontScale=1.0,
-                color=(0, 255, 0),
+                fontScale=0.7,
+                color=(255, 255, 255),
                 thickness=2,
                 lineType=cv2.LINE_AA
             )
@@ -346,32 +834,49 @@ class DashboardApp(ctk.CTk):
         print(f"[DEBUG] Cooldown Active: {is_cooldown}")
         
         if not is_cooldown or manual:
-            ppt_active = self._focus_powerpoint()
+            ppt_status = self._focus_powerpoint()
+            ppt_active = (ppt_status == "SLIDESHOW")
             time.sleep(0.1) # Small delay to ensure focus is applied
             active_win = self._get_active_window_title()
             print(f"[DEBUG] Active Window: {active_win}")
             
-            if gesture == "like":
+            mapping = self.settings.get("gesture_mappings", {})
+            action_intent = mapping.get(gesture, "None")
+            
+            # Intelligent Fallback: If they trigger Next Slide but PowerPoint is only in Edit mode,
+            # gracefully assume they want to Start the Presentation first!
+            if action_intent == "Next Slide" and ppt_status == "EDIT":
+                action_intent = "Start Presentation"
+                
+            if action_intent == "Start Presentation":
+                self.summary_shown = False
                 if not ppt_active:
                     self.presentation_status = "Running"
                     action = "Started"
                     key_sent = "f5"
                     pyautogui.press('f5')
                     feedback_text = "PRESENTATION STARTED"
-                    feedback_color = "#2ECC71"
+                    feedback_color = "#00C896"
                 else:
+                    action = "Ignored (Already Running)"
+            elif action_intent == "Next Slide":
+                if ppt_active:
                     self.presentation_status = "Running"
                     self.current_slide = min(self.current_slide + 1, self.total_slides)
                     action = "Next Slide"
                     key_sent = "pagedown"
                     pyautogui.press('pagedown')
                     feedback_text = "NEXT SLIDE EXECUTED"
-                    feedback_color = "#2ECC71"
-            elif gesture == "fist":
+                    feedback_color = "#00C896"
+                else:
+                    action = "Failed (No PPT)"
+                    feedback_text = "NO ACTIVE PRESENTATION"
+                    feedback_color = "#FF5252"
+            elif action_intent == "Prev Slide":
                 if not ppt_active:
                     action = "Failed (No PPT)"
                     feedback_text = "NO ACTIVE PRESENTATION"
-                    feedback_color = "red"
+                    feedback_color = "#FF5252"
                 else:
                     self.presentation_status = "Running"
                     self.current_slide = max(self.current_slide - 1, 1)
@@ -379,28 +884,29 @@ class DashboardApp(ctk.CTk):
                     key_sent = "pageup"
                     pyautogui.press('pageup')
                     feedback_text = "PREVIOUS SLIDE EXECUTED"
-                    feedback_color = "#2ECC71"
-            elif gesture == "stop":
+                    feedback_color = "#00C896"
+            elif action_intent == "Pause Presentation":
                 self.presentation_status = "Paused"
                 action = "Paused"
                 feedback_text = "PRESENTATION PAUSED"
-                feedback_color = "#F39C12"
-            elif gesture == "peace":
+                feedback_color = "#FFB020"
+            elif action_intent == "End Presentation":
                 if not ppt_active:
                     action = "Failed (No PPT)"
                     feedback_text = "NO ACTIVE PRESENTATION"
-                    feedback_color = "red"
+                    feedback_color = "#FF5252"
                 else:
                     self.presentation_status = "Stopped"
                     action = "Stopped"
                     key_sent = "esc"
                     pyautogui.press('esc')
                     feedback_text = "PRESENTATION ENDED"
-                    feedback_color = "#E74C3C"
+                    feedback_color = "#FF5252"
                     
-            if action != "None" and "Failed" not in action:
+            if action != "None" and "Failed" not in action and "Ignored" not in action:
                 if not manual:
-                    self.cooldown_end_time = current_time + 1.25
+                    cooldown = self.settings.get("cooldown_duration", 1.25)
+                    self.cooldown_end_time = current_time + cooldown
                 self.successful_commands += 1
                 # Write to CSV log
                 ts = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -413,6 +919,10 @@ class DashboardApp(ctk.CTk):
                 ])
                 self.csv_file.flush()
                 
+                # Append to memory structures
+                self.session_history_log.append((self.session_duration, gesture.upper(), confidence, "Success"))
+                self.gesture_counts_total[gesture.upper()] = self.gesture_counts_total.get(gesture.upper(), 0) + 1
+                
             print(f"[DEBUG] Action Selected: {action}")
             print(f"[DEBUG] Key Sent: {key_sent}")
             print(f"[DEBUG] Result: {feedback_text or action}")
@@ -420,12 +930,16 @@ class DashboardApp(ctk.CTk):
                 self._show_feedback(feedback_text, feedback_color)
                 
         else:
-            if gesture in ["like", "fist", "stop", "peace"]:
+            mapping = self.settings.get("gesture_mappings", {})
+            action_intent = mapping.get(gesture, "None")
+            if action_intent != "None":
                 action = "Ignored (Cooldown)"
                 self.rejected_commands += 1
                 print(f"[DEBUG] Action Selected: Ignored")
                 print(f"[DEBUG] Result: ACTION BLOCKED BY COOLDOWN")
-                self._show_feedback("ACTION BLOCKED BY COOLDOWN", "orange")
+                self._show_feedback("ACTION BLOCKED BY COOLDOWN", "#FFB020")
+                self.session_history_log.append((self.session_duration, gesture.upper(), confidence, "Rejected"))
+                self.gesture_counts_total[gesture.upper()] = self.gesture_counts_total.get(gesture.upper(), 0) + 1
             
         if action != "None":
             # Update History UI

@@ -25,6 +25,7 @@ except ImportError:
 # Import config (we are now in src/core, so config is in the parent directory)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import GESTURE_LABELS, MODEL_INPUT_SIZE
+from core.settings import SettingsManager
 
 class GestureRecognizer:
     """
@@ -34,8 +35,11 @@ class GestureRecognizer:
     def __init__(self):
         self.model = self._load_model()
         
-        print("Initializing webcam...")
-        self.cap = cv2.VideoCapture(0)
+        settings = SettingsManager()
+        webcam_index = settings.get("webcam_index", 0)
+        
+        print(f"Initializing webcam (Index {webcam_index})...")
+        self.cap = cv2.VideoCapture(webcam_index)
         if not self.cap.isOpened():
             print("Error: Could not open the webcam.")
             sys.exit(1)
