@@ -33,12 +33,12 @@ from ui.theme import Theme
 
 class AnimatedStatCard(ctk.CTkFrame):
     def __init__(self, master, icon, title, **kwargs):
-        super().__init__(master, fg_color="#1E1E1E", corner_radius=10, **kwargs)
+        super().__init__(master, fg_color=Theme.COLORS["bg_surface"], corner_radius=10, **kwargs)
         
-        self.title_label = ctk.CTkLabel(self, text=f"{icon}  {title}", font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"), text_color="#A0A0A0")
+        self.title_label = ctk.CTkLabel(self, text=f"{icon}  {title}", font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"), text_color=Theme.COLORS["text_sub"])
         self.title_label.pack(anchor="w", padx=15, pady=(15, 5))
         
-        self.value_label = ctk.CTkLabel(self, text="--", font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"), text_color="white")
+        self.value_label = ctk.CTkLabel(self, text="--", font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"), text_color=Theme.COLORS["text_main"])
         self.value_label.pack(anchor="w", padx=15, pady=(0, 15))
         
         self.bind("<Enter>", self._on_enter)
@@ -52,32 +52,32 @@ class AnimatedStatCard(ctk.CTkFrame):
         self.current_value = "--"
 
     def _on_enter(self, event):
-        self.configure(fg_color="#2A2A2A")
+        self.configure(fg_color=Theme.COLORS["bg_surface_hover"])
 
     def _on_leave(self, event):
-        self.configure(fg_color="#1E1E1E")
+        self.configure(fg_color=Theme.COLORS["bg_surface"])
 
-    def update_value(self, new_value, color="white"):
+    def update_value(self, new_value, color=Theme.COLORS["text_main"]):
         if str(new_value) != str(self.current_value):
             self.current_value = new_value
-            self.value_label.configure(text=new_value, text_color="#00C896")
-            self.after(300, lambda: self.value_label.configure(text_color=color))
+            self.value_label.configure(text=new_value, text_color=Theme.COLORS["primary"])
+            self.after(300, lambda: self.winfo_exists() and self.value_label.configure(text_color=color))
         else:
             self.value_label.configure(text_color=color)
 
 class CircularGauge(ctk.CTkFrame):
     def __init__(self, master, title, size=120, **kwargs):
-        super().__init__(master, fg_color="#1E1E1E", corner_radius=10, **kwargs)
+        super().__init__(master, fg_color=Theme.COLORS["bg_surface"], corner_radius=10, **kwargs)
         self.size = size
         
-        self.title_label = ctk.CTkLabel(self, text=f"🎯  {title}", font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"), text_color="#A0A0A0")
+        self.title_label = ctk.CTkLabel(self, text=f"🎯  {title}", font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"), text_color=Theme.COLORS["text_sub"])
         self.title_label.pack(anchor="w", padx=15, pady=(15, 0))
         
-        self.canvas = ctk.CTkCanvas(self, width=size, height=size, bg="#1E1E1E", highlightthickness=0)
+        self.canvas = ctk.CTkCanvas(self, width=size, height=size, bg=Theme.COLORS["bg_surface"][1], highlightthickness=0)
         self.canvas.pack(pady=10)
         
         # Center percentage text
-        self.value_text = self.canvas.create_text(size/2, size/2, text="0%", fill="white", font=("Segoe UI", 24, "bold"))
+        self.value_text = self.canvas.create_text(size/2, size/2, text="0%", fill=Theme.COLORS["text_main"][1], font=("Segoe UI", 24, "bold"))
         
         self.current_value = 0.0
         self._draw_arc(0.0, "#333333") # Base track
@@ -88,7 +88,7 @@ class CircularGauge(ctk.CTkFrame):
         # Draw background track
         padding = 15
         bbox = (padding, padding, self.size - padding, self.size - padding)
-        self.canvas.create_arc(bbox, start=0, extent=359.9, style="arc", outline="#333333", width=8, tags="background")
+        self.canvas.create_arc(bbox, start=0, extent=359.9, style="arc", outline=Theme.COLORS["border"][1], width=8, tags="background")
         
         # Draw foreground progress
         extent = -(percentage * 359.9) # Negative to draw clockwise
@@ -166,12 +166,12 @@ class DashboardApp(ctk.CTk):
         
         for icon, name in nav_items:
             container = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
-            container.pack(fill="x", padx=10, pady=5)
+            container.pack(fill="x", padx=10, pady=3)
             
-            indicator = ctk.CTkFrame(container, fg_color="transparent", width=4, corner_radius=2)
-            indicator.pack(side="left", fill="y", pady=5)
+            indicator = ctk.CTkFrame(container, fg_color="transparent", width=4, height=32, corner_radius=2)
+            indicator.pack(side="left", pady=3)
             
-            btn = ctk.CTkButton(container, text=f"{icon}   {name}", anchor="w", fg_color="transparent", text_color=Theme.COLORS["text_sub"], hover_color=Theme.COLORS["bg_surface_hover"], font=Theme.font_h3(), command=lambda n=name: self.select_page(n))
+            btn = ctk.CTkButton(container, text=f"{icon}   {name}", anchor="w", fg_color="transparent", text_color=Theme.COLORS["text_sub"], hover_color=Theme.COLORS["bg_surface_hover"], font=Theme.font_h3(), height=32, command=lambda n=name: self.select_page(n))
             btn.pack(side="left", fill="x", expand=True, padx=(5,0))
             self.nav_buttons[name] = {"btn": btn, "indicator": indicator}
             
@@ -208,14 +208,14 @@ class DashboardApp(ctk.CTk):
         # Fade transition logic (pseudo-fade by delaying drawing)
         for page_name, page_frame in self.pages.items():
             if page_name == name:
-                self.after(50, lambda p=page_frame: p.grid(row=0, column=0, sticky="nsew"))
+                self.after(50, lambda p=page_frame: self.winfo_exists() and p.grid(row=0, column=0, sticky="nsew"))
             else:
                 page_frame.grid_forget()
 
     def _setup_placeholder_page(self, name):
         """Creates a placeholder frame for unfinished pages."""
         frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
-        label = ctk.CTkLabel(frame, text=f"{name} Page", font=ctk.CTkFont(family="Segoe UI", size=32, weight="bold"), text_color="#555555")
+        label = ctk.CTkLabel(frame, text=f"{name} Page", font=ctk.CTkFont(family="Segoe UI", size=32, weight="bold"), text_color=Theme.COLORS["text_sub"])
         label.place(relx=0.5, rely=0.5, anchor="center")
         self.pages[name] = frame
 
@@ -224,20 +224,20 @@ class DashboardApp(ctk.CTk):
         self.settings_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
         self.pages["Settings"] = self.settings_frame
         
-        title = ctk.CTkLabel(self.settings_frame, text="Application Settings", font=ctk.CTkFont(family="Segoe UI", size=28, weight="bold"), text_color="white")
+        title = ctk.CTkLabel(self.settings_frame, text="Application Settings", font=ctk.CTkFont(family="Segoe UI", size=28, weight="bold"), text_color=Theme.COLORS["text_main"])
         title.pack(anchor="w", padx=40, pady=(40, 20))
         
-        container = ctk.CTkScrollableFrame(self.settings_frame, fg_color="#1E1E1E", corner_radius=15)
+        container = ctk.CTkScrollableFrame(self.settings_frame, fg_color=Theme.COLORS["bg_surface"], corner_radius=15)
         container.pack(fill="both", expand=True, padx=40, pady=(0, 40))
         
         def create_setting_row(parent, label_text):
             row = ctk.CTkFrame(parent, fg_color="transparent")
             row.pack(fill="x", padx=30, pady=15)
-            lbl = ctk.CTkLabel(row, text=label_text, font=ctk.CTkFont(family="Segoe UI", size=16), text_color="#A0A0A0")
+            lbl = ctk.CTkLabel(row, text=label_text, font=ctk.CTkFont(family="Segoe UI", size=16), text_color=Theme.COLORS["text_sub"])
             lbl.pack(side="left")
             return row
             
-        ctk.CTkLabel(container, text="Core Options", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"), text_color="#00C896").pack(anchor="w", padx=20, pady=(20, 10))
+        ctk.CTkLabel(container, text="Core Options", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"), text_color=Theme.COLORS["primary"]).pack(anchor="w", padx=20, pady=(20, 10))
         
         row_conf = create_setting_row(container, "Confidence Threshold")
         self.val_conf = ctk.CTkLabel(row_conf, text=f"{self.settings.get('confidence_threshold'):.2f}", width=40)
@@ -263,7 +263,7 @@ class DashboardApp(ctk.CTk):
         self.combo_theme.set(self.settings.get("theme"))
         self.combo_theme.pack(side="right")
         
-        ctk.CTkLabel(container, text="Gesture Mappings", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"), text_color="#00C896").pack(anchor="w", padx=20, pady=(30, 10))
+        ctk.CTkLabel(container, text="Gesture Mappings", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"), text_color=Theme.COLORS["primary"]).pack(anchor="w", padx=20, pady=(30, 10))
         
         actions = ["Next Slide", "Prev Slide", "Start Presentation", "Pause Presentation", "End Presentation", "None"]
         self.mapping_vars = {}
@@ -276,7 +276,7 @@ class DashboardApp(ctk.CTk):
             combo.pack(side="right")
             self.mapping_vars[gesture] = combo
             
-        btn_save = ctk.CTkButton(container, text="Save Settings", font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), fg_color="#00C896", hover_color="#00A078", height=40, command=self._save_settings_from_ui)
+        btn_save = ctk.CTkButton(container, text="Save Settings", font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), fg_color=Theme.COLORS["primary"], hover_color=Theme.COLORS["primary_hover"], height=40, command=self._save_settings_from_ui)
         btn_save.pack(pady=40)
 
     def _save_settings_from_ui(self):
@@ -288,7 +288,7 @@ class DashboardApp(ctk.CTk):
             "gesture_mappings": {g: c.get() for g, c in self.mapping_vars.items()}
         }
         self.settings.update_multiple(updates)
-        self._show_feedback("SETTINGS SAVED!", "#00C896")
+        self._show_feedback("SETTINGS SAVED!", Theme.COLORS["primary"])
         print("[Settings] Saved successfully.")
 
     def _setup_analytics_page(self):
@@ -331,7 +331,7 @@ class DashboardApp(ctk.CTk):
         self.fig1, self.ax1 = plt.subplots(figsize=(4, 3), dpi=100)
         self.fig1.patch.set_facecolor('#121212')
         self.ax1.set_facecolor('#1E1E1E')
-        self.ax1.set_title("Gesture Frequency", color="white")
+        self.ax1.set_title("Gesture Frequency", color=Theme.COLORS["text_main"][1])
         self.canvas1 = FigureCanvasTkAgg(self.fig1, master=self.charts_container)
         self.canvas1.get_tk_widget().grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
         
@@ -339,7 +339,7 @@ class DashboardApp(ctk.CTk):
         self.fig2, self.ax2 = plt.subplots(figsize=(4, 3), dpi=100)
         self.fig2.patch.set_facecolor('#121212')
         self.ax2.set_facecolor('#1E1E1E')
-        self.ax2.set_title("Confidence Trend", color="white")
+        self.ax2.set_title("Confidence Trend", color=Theme.COLORS["text_main"][1])
         self.canvas2 = FigureCanvasTkAgg(self.fig2, master=self.charts_container)
         self.canvas2.get_tk_widget().grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
         
@@ -347,7 +347,7 @@ class DashboardApp(ctk.CTk):
         self.fig3, self.ax3 = plt.subplots(figsize=(4, 3), dpi=100)
         self.fig3.patch.set_facecolor('#121212')
         self.ax3.set_facecolor('#1E1E1E')
-        self.ax3.set_title("Commands Over Time", color="white")
+        self.ax3.set_title("Commands Over Time", color=Theme.COLORS["text_main"][1])
         self.canvas3 = FigureCanvasTkAgg(self.fig3, master=self.charts_container)
         self.canvas3.get_tk_widget().grid(row=0, column=2, padx=10, pady=10, sticky="nsew")
         
@@ -356,6 +356,8 @@ class DashboardApp(ctk.CTk):
 
     def _update_analytics_charts(self):
         """Periodic loop to update analytics data and charts."""
+        if not self.winfo_exists():
+            return
         # Update Cards
         self.analytics_cards["Total Gestures Detected"].update_value(str(self.total_gestures_detected))
         self.analytics_cards["Successful Commands"].update_value(str(self.successful_commands))
@@ -377,32 +379,32 @@ class DashboardApp(ctk.CTk):
         
         # Update Chart 1: Bar Chart
         self.ax1.clear()
-        self.ax1.set_title("Gesture Frequency", color="white")
+        self.ax1.set_title("Gesture Frequency", color=Theme.COLORS["text_main"][1])
         if self.gesture_counts_total:
             labels = list(self.gesture_counts_total.keys())
             values = list(self.gesture_counts_total.values())
-            self.ax1.bar(labels, values, color="#00C896")
+            self.ax1.bar(labels, values, color=Theme.COLORS["primary"][1])
         self.fig1.tight_layout()
         self.canvas1.draw()
         
         # Update Chart 2: Confidence Line
         self.ax2.clear()
-        self.ax2.set_title("Confidence Trend", color="white")
+        self.ax2.set_title("Confidence Trend", color=Theme.COLORS["text_main"][1])
         if len(self.session_history_log) > 0:
             times = [entry[0] for entry in self.session_history_log]
             confs = [entry[2] for entry in self.session_history_log]
-            self.ax2.plot(times, confs, color="#FFB020", marker='.')
+            self.ax2.plot(times, confs, color=Theme.COLORS["warning"][1], marker='.')
         self.fig2.tight_layout()
         self.canvas2.draw()
         
         # Update Chart 3: Commands Over Time
         self.ax3.clear()
-        self.ax3.set_title("Commands Over Time", color="white")
+        self.ax3.set_title("Commands Over Time", color=Theme.COLORS["text_main"][1])
         if len(self.session_history_log) > 0:
             times = [entry[0] for entry in self.session_history_log if entry[3] != "Rejected"]
             counts = range(1, len(times) + 1)
             if times:
-                self.ax3.plot(times, counts, color="#FF5252")
+                self.ax3.plot(times, counts, color=Theme.COLORS["error"][1])
         self.fig3.tight_layout()
         self.canvas3.draw()
         
@@ -419,18 +421,18 @@ class DashboardApp(ctk.CTk):
         self.dashboard_frame.grid_rowconfigure(0, weight=1)
         
         # 1. Webcam Frame
-        self.video_frame = ctk.CTkFrame(self.dashboard_frame, fg_color="#1E1E1E", corner_radius=15)
+        self.video_frame = ctk.CTkFrame(self.dashboard_frame, fg_color=Theme.COLORS["bg_surface"], corner_radius=15)
         self.video_frame.grid(row=0, column=0, padx=(30, 15), pady=30, sticky="nsew")
         self.video_label = ctk.CTkLabel(self.video_frame, text="")
         self.video_label.pack(expand=True, fill="both", padx=15, pady=15)
         
-        self.feedback_label = ctk.CTkLabel(self.video_frame, text="", font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"), text_color="#00C896")
+        self.feedback_label = ctk.CTkLabel(self.video_frame, text="", font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"), text_color=Theme.COLORS["primary"])
         self.feedback_label.pack(pady=(0, 15))
         
         # 2. Statistics Panel
         self.stats_frame = ctk.CTkFrame(self.dashboard_frame, fg_color="transparent")
         self.stats_frame.grid(row=0, column=1, padx=15, pady=30, sticky="nsew")
-        self.stats_label_title = ctk.CTkLabel(self.stats_frame, text="Real-Time Statistics", font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"), text_color="white")
+        self.stats_label_title = ctk.CTkLabel(self.stats_frame, text="Real-Time Statistics", font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"), text_color=Theme.COLORS["text_main"])
         self.stats_label_title.pack(pady=(0, 20))
         
         self.cards_container = ctk.CTkFrame(self.stats_frame, fg_color="transparent")
@@ -457,27 +459,27 @@ class DashboardApp(ctk.CTk):
             self.cards[field] = card
                 
         # 3. History Panel
-        self.history_frame = ctk.CTkFrame(self.dashboard_frame, fg_color="#1E1E1E", corner_radius=15)
+        self.history_frame = ctk.CTkFrame(self.dashboard_frame, fg_color=Theme.COLORS["bg_surface"], corner_radius=15)
         self.history_frame.grid(row=0, column=2, padx=(15, 30), pady=30, sticky="nsew")
-        self.history_label_title = ctk.CTkLabel(self.history_frame, text="Recent History", font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"), text_color="white")
+        self.history_label_title = ctk.CTkLabel(self.history_frame, text="Recent History", font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"), text_color=Theme.COLORS["text_main"])
         self.history_label_title.pack(pady=(20, 20))
         
         self.history_entries = []
         for i in range(5):
-            entry = ctk.CTkLabel(self.history_frame, text="-", font=ctk.CTkFont(family="Segoe UI", size=15), text_color="#B0B0B0")
+            entry = ctk.CTkLabel(self.history_frame, text="-", font=ctk.CTkFont(family="Segoe UI", size=15), text_color=Theme.COLORS["text_sub"])
             entry.pack(anchor="w", padx=25, pady=12)
             self.history_entries.append(entry)
             
         # 4. Test Controls Panel
-        self.test_frame = ctk.CTkFrame(self.dashboard_frame, fg_color="#1E1E1E", corner_radius=15)
+        self.test_frame = ctk.CTkFrame(self.dashboard_frame, fg_color=Theme.COLORS["bg_surface"], corner_radius=15)
         self.test_frame.grid(row=1, column=0, columnspan=3, padx=30, pady=(0, 30), sticky="ew")
-        self.test_label = ctk.CTkLabel(self.test_frame, text="Test Controls:", font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), text_color="white")
+        self.test_label = ctk.CTkLabel(self.test_frame, text="Test Controls:", font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), text_color=Theme.COLORS["text_main"])
         self.test_label.pack(side="left", padx=25, pady=15)
         
-        btn_prev = ctk.CTkButton(self.test_frame, text="Prev Slide (FIST)", font=ctk.CTkFont(family="Segoe UI", weight="bold"), fg_color="#00C896", hover_color="#00A078", text_color="white", corner_radius=8, command=lambda: self._execute_action("fist", manual=True))
+        btn_prev = ctk.CTkButton(self.test_frame, text="Prev Slide (FIST)", font=ctk.CTkFont(family="Segoe UI", weight="bold"), fg_color=Theme.COLORS["primary"], hover_color=Theme.COLORS["primary_hover"], text_color=Theme.COLORS["text_main"], corner_radius=8, command=lambda: self._execute_action("fist", manual=True))
         btn_prev.pack(side="left", padx=10, pady=15)
         
-        btn_next = ctk.CTkButton(self.test_frame, text="Next Slide (LIKE)", font=ctk.CTkFont(family="Segoe UI", weight="bold"), fg_color="#00C896", hover_color="#00A078", text_color="white", corner_radius=8, command=lambda: self._execute_action("like", manual=True))
+        btn_next = ctk.CTkButton(self.test_frame, text="Next Slide (LIKE)", font=ctk.CTkFont(family="Segoe UI", weight="bold"), fg_color=Theme.COLORS["primary"], hover_color=Theme.COLORS["primary_hover"], text_color=Theme.COLORS["text_main"], corner_radius=8, command=lambda: self._execute_action("like", manual=True))
         btn_next.pack(side="left", padx=10, pady=15)
 
     def _init_state(self):
@@ -561,12 +563,12 @@ class DashboardApp(ctk.CTk):
                 
         return "NONE"
         
-    def _show_feedback(self, text, color="#FFB020"):
+    def _show_feedback(self, text, color=Theme.COLORS["warning"]):
         """Displays feedback on the dashboard and clears it after 3 seconds."""
         self.feedback_label.configure(text=text, text_color=color)
         if self._feedback_timer:
             self.after_cancel(self._feedback_timer)
-        self._feedback_timer = self.after(3000, lambda: self.feedback_label.configure(text=""))
+        self._feedback_timer = self.after(3000, lambda: self.winfo_exists() and self.feedback_label.configure(text=""))
 
     def _setup_logging(self):
         """Creates a timestamped CSV session log in the logs directory."""
@@ -612,14 +614,14 @@ class DashboardApp(ctk.CTk):
         """Builds and displays a full-screen overlay for the session summary."""
         self.summary_shown = True
         
-        self.summary_overlay = ctk.CTkFrame(self.main_container, fg_color="#0A0A0A", corner_radius=0)
+        self.summary_overlay = ctk.CTkFrame(self.main_container, fg_color=Theme.COLORS["bg_base"], corner_radius=0)
         self.summary_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
         
-        self.summary_frame = ctk.CTkFrame(self.summary_overlay, fg_color="#1E1E1E", corner_radius=15, width=600, height=500)
+        self.summary_frame = ctk.CTkFrame(self.summary_overlay, fg_color=Theme.COLORS["bg_surface"], corner_radius=15, width=600, height=500)
         self.summary_frame.place(relx=0.5, rely=0.5, anchor="center")
         self.summary_frame.grid_propagate(False)
         
-        title = ctk.CTkLabel(self.summary_frame, text="Session Complete", font=ctk.CTkFont(family="Segoe UI", size=32, weight="bold"), text_color="#00C896")
+        title = ctk.CTkLabel(self.summary_frame, text="Session Complete", font=ctk.CTkFont(family="Segoe UI", size=32, weight="bold"), text_color=Theme.COLORS["primary"])
         title.pack(pady=(30, 20))
         
         hrs, rem = divmod(int(self.session_duration), 3600)
@@ -644,9 +646,9 @@ class DashboardApp(ctk.CTk):
         metrics_frame.pack(fill="x", padx=50, pady=20)
         
         for i, (label_text, val_text) in enumerate(metrics):
-            lbl = ctk.CTkLabel(metrics_frame, text=label_text, font=ctk.CTkFont(family="Segoe UI", size=18), text_color="#A0A0A0")
+            lbl = ctk.CTkLabel(metrics_frame, text=label_text, font=ctk.CTkFont(family="Segoe UI", size=18), text_color=Theme.COLORS["text_sub"])
             lbl.grid(row=i//2, column=(i%2)*2, sticky="w", pady=10)
-            val = ctk.CTkLabel(metrics_frame, text=val_text, font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"), text_color="white")
+            val = ctk.CTkLabel(metrics_frame, text=val_text, font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"), text_color=Theme.COLORS["text_main"])
             val.grid(row=i//2, column=(i%2)*2+1, sticky="e", padx=(10, 30), pady=10)
             metrics_frame.grid_columnconfigure((i%2)*2, weight=1)
             metrics_frame.grid_columnconfigure((i%2)*2+1, weight=1)
@@ -654,16 +656,16 @@ class DashboardApp(ctk.CTk):
         btn_frame = ctk.CTkFrame(self.summary_frame, fg_color="transparent")
         btn_frame.pack(fill="x", padx=50, pady=(20, 30))
         
-        btn_csv = ctk.CTkButton(btn_frame, text="Export CSV", fg_color="#2B2B2B", hover_color="#3B3B3B", command=self._export_csv)
+        btn_csv = ctk.CTkButton(btn_frame, text="Export CSV", fg_color=Theme.COLORS["bg_surface_hover"], hover_color=Theme.COLORS["border"], command=self._export_csv)
         btn_csv.pack(side="left", padx=10, expand=True)
         
-        btn_png = ctk.CTkButton(btn_frame, text="Save Screenshot", fg_color="#2B2B2B", hover_color="#3B3B3B", command=lambda: self._export_image_or_pdf(".png"))
+        btn_png = ctk.CTkButton(btn_frame, text="Save Screenshot", fg_color=Theme.COLORS["bg_surface_hover"], hover_color=Theme.COLORS["border"], command=lambda: self._export_image_or_pdf(".png"))
         btn_png.pack(side="left", padx=10, expand=True)
         
-        btn_pdf = ctk.CTkButton(btn_frame, text="Export PDF", fg_color="#2B2B2B", hover_color="#3B3B3B", command=lambda: self._export_image_or_pdf(".pdf"))
+        btn_pdf = ctk.CTkButton(btn_frame, text="Export PDF", fg_color=Theme.COLORS["bg_surface_hover"], hover_color=Theme.COLORS["border"], command=lambda: self._export_image_or_pdf(".pdf"))
         btn_pdf.pack(side="left", padx=10, expand=True)
         
-        btn_close = ctk.CTkButton(self.summary_frame, text="Close Report", fg_color="#FF5252", hover_color="#D32F2F", command=self.summary_overlay.destroy)
+        btn_close = ctk.CTkButton(self.summary_frame, text="Close Report", fg_color=Theme.COLORS["error"], hover_color=Theme.COLORS["error"], command=self.summary_overlay.destroy)
         btn_close.pack(pady=10)
 
     def update_frame(self):
@@ -671,6 +673,9 @@ class DashboardApp(ctk.CTk):
         Periodic GUI loop called via Tkinter's `after()`.
         Fetches the latest data from the background thread and redraws the UI.
         """
+        if not self.winfo_exists():
+            return
+            
         # Fetch data safely from background worker thread
         frame, predictions, proc_ms = self.recognizer.get_latest_data()
         
@@ -758,11 +763,11 @@ class DashboardApp(ctk.CTk):
             # --- Global Label Colors ---
             status_color = "white"
             if self.presentation_status == "Running":
-                status_color = "#00C896" # Accent
+                status_color = Theme.COLORS["primary"] # Accent
             elif self.presentation_status == "Paused":
-                status_color = "#FFB020" # Warning
+                status_color = Theme.COLORS["warning"] # Warning
             elif self.presentation_status == "Stopped":
-                status_color = "#FF5252" # Error
+                status_color = Theme.COLORS["error"] # Error
                 if not getattr(self, "summary_shown", False):
                     self._build_summary_overlay()
                 
@@ -856,7 +861,7 @@ class DashboardApp(ctk.CTk):
                     key_sent = "f5"
                     pyautogui.press('f5')
                     feedback_text = "PRESENTATION STARTED"
-                    feedback_color = "#00C896"
+                    feedback_color = Theme.COLORS["primary"]
                 else:
                     action = "Ignored (Already Running)"
             elif action_intent == "Next Slide":
@@ -867,16 +872,16 @@ class DashboardApp(ctk.CTk):
                     key_sent = "pagedown"
                     pyautogui.press('pagedown')
                     feedback_text = "NEXT SLIDE EXECUTED"
-                    feedback_color = "#00C896"
+                    feedback_color = Theme.COLORS["primary"]
                 else:
                     action = "Failed (No PPT)"
                     feedback_text = "NO ACTIVE PRESENTATION"
-                    feedback_color = "#FF5252"
+                    feedback_color = Theme.COLORS["error"]
             elif action_intent == "Prev Slide":
                 if not ppt_active:
                     action = "Failed (No PPT)"
                     feedback_text = "NO ACTIVE PRESENTATION"
-                    feedback_color = "#FF5252"
+                    feedback_color = Theme.COLORS["error"]
                 else:
                     self.presentation_status = "Running"
                     self.current_slide = max(self.current_slide - 1, 1)
@@ -884,24 +889,24 @@ class DashboardApp(ctk.CTk):
                     key_sent = "pageup"
                     pyautogui.press('pageup')
                     feedback_text = "PREVIOUS SLIDE EXECUTED"
-                    feedback_color = "#00C896"
+                    feedback_color = Theme.COLORS["primary"]
             elif action_intent == "Pause Presentation":
                 self.presentation_status = "Paused"
                 action = "Paused"
                 feedback_text = "PRESENTATION PAUSED"
-                feedback_color = "#FFB020"
+                feedback_color = Theme.COLORS["warning"]
             elif action_intent == "End Presentation":
                 if not ppt_active:
                     action = "Failed (No PPT)"
                     feedback_text = "NO ACTIVE PRESENTATION"
-                    feedback_color = "#FF5252"
+                    feedback_color = Theme.COLORS["error"]
                 else:
                     self.presentation_status = "Stopped"
                     action = "Stopped"
                     key_sent = "esc"
                     pyautogui.press('esc')
                     feedback_text = "PRESENTATION ENDED"
-                    feedback_color = "#FF5252"
+                    feedback_color = Theme.COLORS["error"]
                     
             if action != "None" and "Failed" not in action and "Ignored" not in action:
                 if not manual:
@@ -937,7 +942,7 @@ class DashboardApp(ctk.CTk):
                 self.rejected_commands += 1
                 print(f"[DEBUG] Action Selected: Ignored")
                 print(f"[DEBUG] Result: ACTION BLOCKED BY COOLDOWN")
-                self._show_feedback("ACTION BLOCKED BY COOLDOWN", "#FFB020")
+                self._show_feedback("ACTION BLOCKED BY COOLDOWN", Theme.COLORS["warning"])
                 self.session_history_log.append((self.session_duration, gesture.upper(), confidence, "Rejected"))
                 self.gesture_counts_total[gesture.upper()] = self.gesture_counts_total.get(gesture.upper(), 0) + 1
             
@@ -956,6 +961,14 @@ class DashboardApp(ctk.CTk):
     def on_closing(self):
         """Cleanup logic when the window is closed."""
         print("Exiting application...")
-        self.csv_file.close()
-        self.recognizer.stop()
-        self.destroy()
+        try:
+            self.csv_file.close()
+        except Exception:
+            pass
+            
+        if hasattr(self, 'recognizer') and self.recognizer:
+            self.recognizer.stop()
+            
+        # Force terminate to prevent Tkinter 'invalid command name' teardown errors
+        import os
+        os._exit(0)

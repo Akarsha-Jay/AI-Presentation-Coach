@@ -9,17 +9,18 @@ import customtkinter as ctk
 
 class Theme:
     # --- Color Palette ---
+    # CustomTkinter automatically uses the first color for light mode and the second for dark mode.
     COLORS = {
-        "bg_base": "#0B0F19",       # Deep, dark background
-        "bg_surface": "#151A28",    # Elevated surface (Cards/Sidebar)
-        "bg_surface_hover": "#1F263B",
-        "primary": "#00C896",       # Emerald Accent
-        "primary_hover": "#00A078",
-        "warning": "#FFB020",
-        "error": "#FF5252",
-        "text_main": "#FFFFFF",
-        "text_sub": "#8F9BB3",
-        "border": "#2E3A59"
+        "bg_base": ("#F5F7FA", "#0B0F19"),       
+        "bg_surface": ("#FFFFFF", "#1E1E1E"),    
+        "bg_surface_hover": ("#E2E8F0", "#2A2A2A"),
+        "primary": ("#00A078", "#00C896"),       
+        "primary_hover": ("#008060", "#00A078"),
+        "warning": ("#F59E0B", "#FFB020"),
+        "error": ("#EF4444", "#FF5252"),
+        "text_main": ("#0F172A", "#FFFFFF"),
+        "text_sub": ("#64748B", "#A0A0A0"),
+        "border": ("#CBD5E1", "#333333")
     }
 
     # --- Metrics ---

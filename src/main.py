@@ -23,10 +23,14 @@ def main():
     app = DashboardApp()
     app.protocol("WM_DELETE_WINDOW", app.on_closing)
     
-    try:
-        app.mainloop()
-    except KeyboardInterrupt:
-        print("Interrupted by user, exiting...")
+    import signal
+    def handle_sigint(signum, frame):
+        print("\nInterrupted by user, exiting...")
+        app.on_closing()
+        
+    signal.signal(signal.SIGINT, handle_sigint)
+
+    app.mainloop()
 
 if __name__ == "__main__":
     main()
